@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/samthor/promises.svg?branch=master)](https://travis-ci.org/samthor/promises)
+
 The missing `Promise` helpers your project needs—just contains a few helpers that can benefit your project.
 Ships as an ES module.
 
