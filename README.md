@@ -9,9 +9,12 @@ You might be able to transpile these requirements away for [older browsers](http
 Add to your dependencies via NPM or Yarn.
 
 ```js
-import * as promises from './node_modulues/promiseslib/index.js';  // or
+import * as promises from './node_modules/promiseslib/index.js';  // or
 import * as promises from 'promiseslib';  // maybe, but must be transpiled
 ```
+
+If you're feeling lazy, open this file in [RawGit](https://rawgit.com/?url=https://github.com/samthor/promises/blob/master/index.js) and use the latest production link.
+This won't provide you with updates but it is easy to include whole "https://..." paths via ES modules.
 
 ### Methods
 
