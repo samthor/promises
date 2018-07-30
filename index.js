@@ -6,6 +6,8 @@
 //   import * as promises from 'https://cdn.rawgit.com/...<REST OF URL>';
 //
 
+const noop = () => {};
+
 /**
  * Returns a Promise that resolves after the specified time. If no time is passed, waits for a rAF.
  *
@@ -81,9 +83,15 @@ export const takeoverSymbol = Symbol('takeover');
  * @return {function(...*): !Promise<*>}
  */
 export function makeSingle(generator) {
-  let globalNonce;
+  const abort = Symbol('fail');  // distinct from takeoverSymbol so folks can't return it
+
+  let previousPromise;
+  let previousResolve = noop;
+
   return async function(...args) {
-    const localNonce = globalNonce = new Object();
+    previousResolve(abort);
+    ({promise: previousPromise, resolve: previousResolve} = resolvable());
+    const localSinglePromise = previousPromise;
 
     const iter = generator(...args);
     let resumeValue;
@@ -94,9 +102,9 @@ export function makeSingle(generator) {
       }
 
       // whatever the generator yielded, _now_ run await on it
-      resumeValue = await n.value;
-      if (localNonce !== globalNonce) {
-        return takeoverSymbol;  // a new call was made
+      resumeValue = await Promise.race([toPromise(n.value), localSinglePromise]);
+      if (resumeValue === abort) {
+        return takeoverSymbol;
       }
       // next loop, we give resumeValue back to the generator
     }
@@ -114,11 +122,11 @@ export function makeSingle(generator) {
  * @param {(function(boolean): void)=} callback invoked with false for empty, true for non-empty
  * @return {function(*=): Promise<void>}
  */
-export function group(callback=() => {}) {
+export function group(callback=noop) {
   const all = [];
   let count = 0;
   let p = null;
-  let currentResolve = null;
+  let resolve = null;
 
   const resolveWithError = (err) => currentResolve(Promise.reject(err));
   const dec = () => {
@@ -135,15 +143,10 @@ export function group(callback=() => {}) {
       resolveWithError(e);
     }
 
-    currentResolve();
+    resolve();
     p = null;
-    currentResolve = null;
+    resolve = null;
   };
-
-  async function run(task) {
-    // tiny helper that turns anything into a Promise (async/await magic)
-    return task;
-  }
 
   return function(task=undefined) {
     const promiseWasNull = (p === null);
@@ -152,9 +155,7 @@ export function group(callback=() => {}) {
         return Promise.resolve();  // immediately done
       }
 
-      p = new Promise((resolve) => {
-        currentResolve = resolve;
-      });
+      ({promise: p, resolve} = resolvable());
       if (count !== 0) {
         throw new TypeError('expective +ve count for Promise creation');
       }
@@ -164,8 +165,31 @@ export function group(callback=() => {}) {
     }
 
     ++count;
-    run(task).catch(resolveWithError).then(dec);
+    toPromise(task).catch(resolveWithError).then(dec);
     promiseWasNull && callback(true);  // perform last so any Error doesn't effect behavior
     return p;
   }
+}
+
+/**
+ * Helper to return a Promise and a resolve helper.
+ *
+ * @template {T}
+ * @return {{promise: !Promise<T>, resolve: function(T): void}}
+ */
+export function resolvable() {
+  let resolve;
+  const promise = new Promise((r) => resolve = r);
+  return {promise, resolve};
+}
+
+/**
+ * Helper that turns anything into a Promise (async/await magic).
+ *
+ * @template {T}
+ * @param {(T|!Promise<T>)} t
+ * @return {!Promise<T>} t
+ */
+async function toPromise(t) {
+  return t;
 }

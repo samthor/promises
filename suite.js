@@ -1,11 +1,5 @@
 import * as promises from './index.js';
 
-function resolvable() {
-  let resolve;
-  const promise = new Promise((r) => resolve = r);
-  return {promise, resolve};
-}
-
 function isResolved(p) {
   // wait longer than a microtask
   const sleep = new Promise((resolve) => self.setTimeout(resolve, 0));
@@ -59,7 +53,7 @@ suite('dedup', () => {
 suite('makeSingle', () => {
   test('takeover', async () => {
     let passed = 0;
-    const {promise, resolve} = resolvable();
+    const {promise, resolve} = promises.resolvable();
     function* gen(out) {
       yield promise;
       ++passed;
@@ -73,12 +67,10 @@ suite('makeSingle', () => {
 
     const c2 = single(2);
     assert.isFalse(await isResolved(c2));
-    // TODO(samthor): c1 isn't resolved until after the promise we're blocked on resolves. Maybe
-    // race instead?
-    // assert.isTrue(await isResolved(c1));
+    assert.isTrue(await isResolved(c1), 'c1 should be immediately resolved');
+    assert.equal(promises.takeoverSymbol, await c1);
 
     resolve();
-    assert.equal(promises.takeoverSymbol, await c1);
     assert.equal(2, await c2);
     assert.equal(1, passed);  // only passed that point once
   });
@@ -87,7 +79,7 @@ suite('makeSingle', () => {
 suite('group', () => {
   test('single', async () => {
     let state = false;
-    const {promise: p1, resolve: r1} = resolvable();
+    const {promise: p1, resolve: r1} = promises.resolvable();
     const g = promises.group((s) => state = s);
 
     const groupWait = g(p1);
@@ -102,8 +94,8 @@ suite('group', () => {
   });
 
   test('multiple', async () => {
-    const {promise: p1, resolve: r1} = resolvable();
-    const {promise: p2, resolve: r2} = resolvable();
+    const {promise: p1, resolve: r1} = promises.resolvable();
+    const {promise: p2, resolve: r2} = promises.resolvable();
     const g = promises.group();
 
     g(p1);
