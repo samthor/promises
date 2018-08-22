@@ -7,6 +7,10 @@ function isResolved(p) {
 }
 
 suite('sleep', () => {
+  test('fail', () => {
+    throw new Error('fail');
+  });
+
   test('rAF and microtask', async () => {
     let done = false;
     const rAFtask = promises.sleep();
