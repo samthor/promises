@@ -9,15 +9,23 @@ function isResolved(p) {
 suite('sleep', () => {
   test('rAF and microtask', async () => {
     let done = false;
-    const rAFtask = promises.sleep();
+    const rAFtask = promises.frame();
     const rAFdone = rAFtask.then(() => {
       done = true;
     });
 
-    await promises.sleep(null).then(() => {
-      assert.isFalse(done);  // should not be done at microtask point
+    const p1 = promises.sleep().then(() => {
+      assert.isFalse(done, 'sleep should not be done before frame');
     });
+
+    const p2 = promises.timeout().then(() => {
+      // nb. is this flakey?
+      assert.isFalse(done, 'timeout should not be done before frame');
+    });
+
     await rAFdone;
+    await p1;
+    await p2;
   });
 });
 
@@ -37,7 +45,7 @@ suite('dedup', () => {
   test('counter', async () => {
     let calls = 0;
     const inc = () => ++calls;
-    const dedupInc = promises.dedup(inc, null);
+    const dedupInc = promises.dedup(inc, promises.sleep, -1);
 
     const p1 = dedupInc();
     const p2 = dedupInc();
@@ -77,6 +85,12 @@ suite('makeSingle', () => {
 });
 
 suite('group', () => {
+  test('none', async () => {
+    const g = promises.group();
+    const p = g();
+    assert.isTrue(await isResolved(p));
+  });
+
   test('single', async () => {
     let state = false;
     const {promise: p1, resolve: r1} = promises.resolvable();

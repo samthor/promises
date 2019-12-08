@@ -9,23 +9,36 @@
 const noop = () => {};
 
 /**
- * Returns a Promise that resolves after the specified time. If no time is passed, waits for a rAF.
+ * @return {!Promise<void>} resolved after requestAnimationFrame
+ */
+export function frame() {
+  return new Promise((r) => self.requestAnimationFrame(r));
+}
+
+/**
+ * @return {!Promise<void>} resolved after microtask (requires native Promise)
+ */
+export const microtask = self.queueMicrotask ? 
+    () => new Promise((r) => self.queueMicrotask(r)) :
+    () => Promise.resolve();
+
+/**
+ * @param {number=} ms
+ * @return {!Promise<void>} resolved after timeout
+ */
+export function timeout(ms = 0) {
+  return new Promise((r) => self.setTimeout(r, ms));
+}
+
+/**
+ * Returns a Promise that resolves after the specified time. If no time is passed, waits for
+ * a microtask.
  *
- * @param {number=} ms to wait, -ve for rAF, null for microtask
+ * @param {number=} ms to wait, null/undefined for microtask
  * @return {!Promise<void>}
  */
-export function sleep(ms=-1) {
-  return new Promise((resolve) => {
-    const r = () => resolve();
-    if (ms < 0) {
-      self.requestAnimationFrame(r);
-    } else if (ms == null) {
-      // microtask timing
-      Promise.resolve().then(r);
-    } else {
-      self.setTimeout(r, ms);
-    }
-  });
+export function sleep(ms) {
+  return ms != null ? timeout(ms) : microtask();
 }
 
 /**
@@ -37,7 +50,12 @@ export function sleep(ms=-1) {
  */
 export function event(target, name) {
   return new Promise((resolve) => {
-    target.addEventListener(name, resolve, {once: true});
+    // don't use {once: true}, for IE11 support (would just leak memory)
+    const handler = () => {
+      resolve();
+      target.removeEventListener(name, handler);
+    };
+    target.addEventListener(name, handler);
   });
 }
 
@@ -48,17 +66,17 @@ export function event(target, name) {
  *
  * @template T
  * @param {function(...*): T} fn to dedup
- * @param {number=} ms to wait
+ * @param {function(): !Promise<*>} delayer to build Promise to dedup over
  * @return {function(...*): Promise<T>}
  */
-export function dedup(fn, ms=undefined) {
+export function dedup(fn, delayer) {
   let p = null;
   let lastArguments;
   return function(...args) {
     lastArguments = args;
     if (p === null) {
       // first call, create Promise
-      p = sleep(ms).then(() => {
+      p = delayer().then(() => {
         const args = lastArguments;
         p = null;
         lastArguments = undefined;  // clear in case of memory leak
@@ -72,7 +90,9 @@ export function dedup(fn, ms=undefined) {
 /**
  * Symbol that indicates a call managed by makeSingle has been cancelled in favor of a new call.
  */
-export const takeoverSymbol = Symbol('takeover');
+export const takeoverSymbol = Object.seal({});
+
+const abortSymbol = Object.seal({});  // distinct from takeoverSymbol so folks can't return it
 
 /**
  * Accepts a generator function, which yields awaitables (ostensibly Promise instances, but
@@ -83,13 +103,11 @@ export const takeoverSymbol = Symbol('takeover');
  * @return {function(...*): !Promise<*>}
  */
 export function makeSingle(generator) {
-  const abort = Symbol('fail');  // distinct from takeoverSymbol so folks can't return it
-
   let previousPromise;
   let previousResolve = noop;
 
   return async function(...args) {
-    previousResolve(abort);
+    previousResolve(abortSymbol);
     ({promise: previousPromise, resolve: previousResolve} = resolvable());
     const localSinglePromise = previousPromise;
 
@@ -103,7 +121,7 @@ export function makeSingle(generator) {
 
       // whatever the generator yielded, _now_ run await on it
       resumeValue = await Promise.race([toPromise(n.value), localSinglePromise]);
-      if (resumeValue === abort) {
+      if (resumeValue === abortSymbol) {
         return takeoverSymbol;
       }
       // next loop, we give resumeValue back to the generator
@@ -123,7 +141,6 @@ export function makeSingle(generator) {
  * @return {function(*=): Promise<void>}
  */
 export function group(callback=noop) {
-  const all = [];
   let count = 0;
   let p = null;
   let resolve = null;
@@ -168,7 +185,7 @@ export function group(callback=noop) {
     toPromise(task).catch(resolveWithError).then(dec);
     promiseWasNull && callback(true);  // perform last so any Error doesn't effect behavior
     return p;
-  }
+  };
 }
 
 /**
